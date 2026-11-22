@@ -1,137 +1,63 @@
-// Tiny Stack VM: a faithful interpreter of make.fun's tiny stack ISA (ISA.md; vm.mjs is the rule).
-// Per step, in order: step limit, pc, unknown opcode, truncated immediate, stack
-// checks, then the instruction's own trap, then its effect. Traps keep prior output.
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-const SMAX = 256, CMAX = 64, MWORDS = 256, STEPS = 1000000, OMAX = 65536;
-// [immediate bytes, pops, pushes] per opcode; null when unknown. Opcodes are decimal
-// here: 0 HALT, 1 PUSH8, 2 PUSH32, 3 POP, 4 DUP, 5 SWAP, 6 OVER, 7 ROT, 16-22 arith,
-// 23 NEG, 24-26 AND/OR/XOR, 27 NOT, 28-30 shifts, 32-34 EQ/LT/LTU, 48-50 jumps,
-// 51 CALL, 52 RET, 64 LOAD, 65 STORE, 80 PRINT, 81 PUTC, 82 IN, 83 EXIT.
-function spec(o: number): [number, number, number] | null {
-  if (o === 0) return [0, 0, 0];
-  if (o === 1) return [1, 0, 1];
-  if (o === 2) return [4, 0, 1];
-  if (o === 3) return [0, 1, 0];
-  if (o === 4) return [0, 1, 2];
-  if (o === 5) return [0, 2, 2];
-  if (o === 6) return [0, 2, 3];
-  if (o === 7) return [0, 3, 3];
-  if (o >= 16 && o <= 22) return [0, 2, 1];
-  if (o === 23 || o === 27) return [0, 1, 1];
-  if (o >= 24 && o <= 34) return [0, 2, 1];
-  if (o === 48) return [2, 0, 0];
-  if (o === 49 || o === 50) return [2, 1, 0];
-  if (o === 51) return [2, 0, 0];
-  if (o === 52) return [0, 0, 0];
-  if (o === 64) return [0, 1, 1];
-  if (o === 65) return [0, 2, 0];
-  if (o === 80 || o === 81) return [0, 1, 0];
-  if (o === 82) return [0, 0, 1];
-  if (o === 83) return [0, 1, 0];
-  return null;
+import{mkdirSync as m,readdirSync as L,readFileSync as f,writeFileSync as w}from"node:fs";
+const s=o=>o==0?0:o==1?17:o==2?65:o==3?4:o==4?6:o==5?10:o==6?11:o==7?15:o<16?-1:o<23?9:o==23?5:o<27?9:o==27?5:o<31?9:o==31?-1:o<35?9:o<48?-1:o==48?32:o<51?36:o==51?32:o==52?0:o<64?-1:o==64?5:o==65?8:o<80?-1:o==80||o==81?4:o==82?1:o==83?4:-1;
+function R(p,q){
+const S=new Int32Array(256),C=new Int32Array(64),M=new Int32Array(256),O=new Uint8Array(1<<16);
+let a=0,b=0,c=0,e=0,g=0,h=0;
+const E=x=>[O.slice(0,g),x];
+for(;;){
+if(e==1e6)return E(10);
+if(c<0||c>=p.length)return E(9);
+const o=p[c],v=s(o);
+if(v<0)return E(5);
+const i=v>>4,n=(v>>2)&3,t=v&3;
+if(c+i>=p.length)return E(9);
+e++;
+const y=c+1+i;
+if(a<n)return E(2);
+if(a-n+t>256)return E(3);
+c=y;
+if(o==0)return E(0);
+if(o==1){S[a++]=(p[y-1]<<24)>>24;continue}
+if(o==2){S[a++]=p[y-4]|p[y-3]<<8|p[y-2]<<16|p[y-1]<<24;continue}
+if(o==3){a--;continue}
+if(o==4){S[a]=S[a-1];a++;continue}
+if(o==5){const z=S[a-1];S[a-1]=S[a-2];S[a-2]=z;continue}
+if(o==6){S[a]=S[a-2];a++;continue}
+if(o==7){const z=S[a-3];S[a-3]=S[a-2];S[a-2]=S[a-1];S[a-1]=z;continue}
+if(o==23){S[a-1]=-S[a-1]|0;continue}
+if(o==27){S[a-1]=~S[a-1];continue}
+if(o>=16&&o<=34){
+const B=S[a-1],A=S[a-2];let r;
+if(o==16)r=A+B|0;
+else if(o==17)r=A-B|0;
+else if(o==18)r=Math.imul(A,B);
+else if(o==19){if(B==0)return E(4);r=A==-2147483648&&B==-1?A:A/B|0}
+else if(o==20){if(B==0)return E(4);r=B==-1?0:A%B|0}
+else if(o==21){if(B==0)return E(4);r=Math.floor((A>>>0)/(B>>>0))|0}
+else if(o==22){if(B==0)return E(4);r=(A>>>0)%(B>>>0)|0}
+else if(o==24)r=A&B;
+else if(o==25)r=A|B;
+else if(o==26)r=A^B;
+else if(o==28)r=A<<(B&31);
+else if(o==29)r=A>>(B&31);
+else if(o==30)r=(A>>>(B&31))|0;
+else if(o==32)r=A==B?1:0;
+else if(o==33)r=A<B?1:0;
+else r=(A>>>0)<(B>>>0)?1:0;
+a-=2;S[a++]=r;continue}
+if(o>=48&&o<=50){
+const z=(p[y-2]|p[y-1]<<8)<<16>>16;let u=!0;
+if(o!=48){const j=S[--a];u=o==49?j==0:j!=0}
+if(u)c=y+z;continue}
+if(o==51){if(b==64)return E(7);C[b++]=y;c=p[y-2]|p[y-1]<<8;continue}
+if(o==52){if(b==0)return E(8);c=C[--b];continue}
+if(o==64){const z=S[a-1];if(z<0||z>=256)return E(6);S[a-1]=M[z];continue}
+if(o==65){const z=S[a-1],x=S[a-2];if(z<0||z>=256)return E(6);a-=2;M[z]=x;continue}
+if(o==80){const t=""+S[a-1];if(g+t.length>65536)return E(11);a--;for(let k=0;k<t.length;)O[g++]=t.charCodeAt(k++);continue}
+if(o==81){if(g>65535)return E(11);O[g++]=S[--a]&255;continue}
+if(o==82){S[a++]=h<q.length?q[h++]:-1;continue}
+return E(S[--a]&255)
 }
-function run(prog: Uint8Array, input: Uint8Array): { out: Uint8Array; code: number } {
-  const st = new Int32Array(SMAX), calls = new Int32Array(CMAX), mem = new Int32Array(MWORDS);
-  const out = new Uint8Array(OMAX);
-  let sp = 0, csp = 0, pc = 0, steps = 0, olen = 0, ipos = 0;
-  const end = (code: number) => ({ out: out.slice(0, olen), code });
-  for (;;) {
-    if (steps === STEPS) return end(10);
-    if (pc < 0 || pc >= prog.length) return end(9);
-    const o = prog[pc], s = spec(o);
-    if (s === null) return end(5);
-    const imm = s[0], pops = s[1], pushes = s[2];
-    if (pc + imm >= prog.length) return end(9);
-    steps++;
-    const next = pc + 1 + imm;
-    if (sp < pops) return end(2);
-    if (sp - pops + pushes > SMAX) return end(3);
-    pc = next;
-    if (o === 0) return end(0);
-    if (o === 1) { st[sp++] = (prog[next - 1] << 24) >> 24; continue; }
-    if (o === 2) { st[sp++] = prog[next - 4] | (prog[next - 3] << 8) | (prog[next - 2] << 16) | (prog[next - 1] << 24); continue; }
-    if (o === 3) { sp--; continue; }
-    if (o === 4) { st[sp] = st[sp - 1]; sp++; continue; }
-    if (o === 5) { const t = st[sp - 1]; st[sp - 1] = st[sp - 2]; st[sp - 2] = t; continue; }
-    if (o === 6) { st[sp] = st[sp - 2]; sp++; continue; }
-    if (o === 7) { const a = st[sp - 3]; st[sp - 3] = st[sp - 2]; st[sp - 2] = st[sp - 1]; st[sp - 1] = a; continue; }
-    if (o === 23) { st[sp - 1] = (-st[sp - 1]) | 0; continue; }
-    if (o === 27) { st[sp - 1] = ~st[sp - 1]; continue; }
-    if (o >= 16 && o <= 34) {
-      const b = st[sp - 1], a = st[sp - 2];
-      let r: number;
-      if (o === 16) r = (a + b) | 0;
-      else if (o === 17) r = (a - b) | 0;
-      else if (o === 18) r = Math.imul(a, b);
-      else if (o === 19) {
-        if (b === 0) return end(4);
-        r = a === -2147483648 && b === -1 ? a : (a / b) | 0;
-      } else if (o === 20) {
-        if (b === 0) return end(4);
-        r = b === -1 ? 0 : (a % b) | 0;
-      } else if (o === 21) {
-        if (b === 0) return end(4);
-        r = Math.floor((a >>> 0) / (b >>> 0)) | 0;
-      } else if (o === 22) {
-        if (b === 0) return end(4);
-        r = ((a >>> 0) % (b >>> 0)) | 0;
-      } else if (o === 24) r = a & b;
-      else if (o === 25) r = a | b;
-      else if (o === 26) r = a ^ b;
-      else if (o === 28) r = a << (b & 31);
-      else if (o === 29) r = a >> (b & 31);
-      else if (o === 30) r = (a >>> (b & 31)) | 0;
-      else if (o === 32) r = a === b ? 1 : 0;
-      else if (o === 33) r = a < b ? 1 : 0;
-      else r = (a >>> 0) < (b >>> 0) ? 1 : 0;
-      sp -= 2; st[sp++] = r; continue;
-    }
-    if (o >= 48 && o <= 50) {
-      const rel = ((prog[next - 2] | (prog[next - 1] << 8)) << 16) >> 16;
-      let take = true;
-      if (o !== 48) { const v = st[--sp]; take = o === 49 ? v === 0 : v !== 0; }
-      if (take) pc = next + rel;
-      continue;
-    }
-    if (o === 51) {
-      if (csp === CMAX) return end(7);
-      calls[csp++] = next; pc = prog[next - 2] | (prog[next - 1] << 8); continue;
-    }
-    if (o === 52) {
-      if (csp === 0) return end(8);
-      pc = calls[--csp]; continue;
-    }
-    if (o === 64) {
-      const addr = st[sp - 1];
-      if (addr < 0 || addr >= MWORDS) return end(6);
-      st[sp - 1] = mem[addr]; continue;
-    }
-    if (o === 65) {
-      const addr = st[sp - 1], v = st[sp - 2];
-      if (addr < 0 || addr >= MWORDS) return end(6);
-      sp -= 2; mem[addr] = v; continue;
-    }
-    if (o === 80) {
-      const text = String(st[sp - 1]);
-      if (olen + text.length > OMAX) return end(11);
-      sp--;
-      for (let i = 0; i < text.length; i++) out[olen++] = text.charCodeAt(i);
-      continue;
-    }
-    if (o === 81) {
-      if (olen + 1 > OMAX) return end(11);
-      out[olen++] = st[--sp] & 255; continue;
-    }
-    if (o === 82) { st[sp++] = ipos < input.length ? input[ipos++] : -1; continue; }
-    return end(st[--sp] & 255);
-  }
 }
-const IN_DIR = process.env.MAKEFUN_INPUT_DIR ?? '/input';
-const OUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-for (const id of readdirSync(IN_DIR).sort()) {
-  const r = run(readFileSync(join(IN_DIR, id, 'program.bin')), readFileSync(join(IN_DIR, id, 'input.bin')));
-  mkdirSync(join(OUT_DIR, id), { recursive: true });
-  writeFileSync(join(OUT_DIR, id, 'stdout.bin'), r.out);
-  writeFileSync(join(OUT_DIR, id, 'exit.txt'), `${r.code}\n`);
-}
+const I=process.env.MAKEFUN_INPUT_DIR??"/input",T=process.env.MAKEFUN_OUTPUT_DIR??"/output";
+for(const d of L(I).sort()){const t=R(f(I+"/"+d+"/program.bin"),f(I+"/"+d+"/input.bin"));m(T+"/"+d,{recursive:!0});w(T+"/"+d+"/stdout.bin",t[0]);w(T+"/"+d+"/exit.txt",t[1]+"\n")}
